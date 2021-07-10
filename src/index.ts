@@ -1,7 +1,12 @@
-import { server } from "./api";
+import { initServer, startServer } from "./api";
+import Logger from "./utils/logger";
 
-
-server.listen(3000, (err, address) => {
-  if (err) throw err
-  // Server is now listening on ${address}
-})
+(async () => {
+  const logger = new Logger();
+  try {
+    const server = await initServer();
+    startServer(server);
+  } catch (error) {
+    logger.error(error.message);
+  }
+})();
