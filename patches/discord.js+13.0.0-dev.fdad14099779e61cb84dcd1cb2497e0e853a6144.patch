@@ -1,0 +1,258 @@
+diff --git a/node_modules/discord.js/src/client/BaseClient.js b/node_modules/discord.js/src/client/BaseClient.js
+index bf3f3b9..c613f04 100644
+--- a/node_modules/discord.js/src/client/BaseClient.js
++++ b/node_modules/discord.js/src/client/BaseClient.js
+@@ -45,7 +45,7 @@ class BaseClient extends EventEmitter {
+      * @type {RESTManager}
+      * @private
+      */
+-    this.rest = new RESTManager(this, options._tokenType);
++    this.rest = new RESTManager(this);
+   }
+ 
+   /**
+diff --git a/node_modules/discord.js/src/client/Client.js b/node_modules/discord.js/src/client/Client.js
+index e68da9c..7f4c447 100644
+--- a/node_modules/discord.js/src/client/Client.js
++++ b/node_modules/discord.js/src/client/Client.js
+@@ -31,7 +31,7 @@ class Client extends BaseClient {
+    * @param {ClientOptions} options Options for the client
+    */
+   constructor(options) {
+-    super(Object.assign({ _tokenType: 'Bot' }, options));
++    super(options);
+ 
+     // Obtain shard details from environment or if present, worker threads
+     let data = process.env;
+diff --git a/node_modules/discord.js/src/client/websocket/handlers/READY.js b/node_modules/discord.js/src/client/websocket/handlers/READY.js
+index e0021b2..46608cd 100644
+--- a/node_modules/discord.js/src/client/websocket/handlers/READY.js
++++ b/node_modules/discord.js/src/client/websocket/handlers/READY.js
+@@ -1,6 +1,5 @@
+ 'use strict';
+ 
+-const ClientApplication = require('../../../structures/ClientApplication');
+ let ClientUser;
+ 
+ module.exports = (client, { d: data }, shard) => {
+@@ -17,11 +16,5 @@ module.exports = (client, { d: data }, shard) => {
+     client.guilds.add(guild);
+   }
+ 
+-  if (client.application) {
+-    client.application._patch(data.application);
+-  } else {
+-    client.application = new ClientApplication(client, data.application);
+-  }
+-
+   shard.checkReady();
+ };
+diff --git a/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_ADD.js b/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_ADD.js
+new file mode 100644
+index 0000000..d0816a3
+--- /dev/null
++++ b/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_ADD.js
+@@ -0,0 +1,5 @@
++'use strict';
++
++module.exports = (client, packet) => {
++  client.emit(' ', packet.d);
++};
+diff --git a/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_REMOVE.js b/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_REMOVE.js
+new file mode 100644
+index 0000000..ff5af13
+--- /dev/null
++++ b/node_modules/discord.js/src/client/websocket/handlers/RELATIONSHIP_REMOVE.js
+@@ -0,0 +1,5 @@
++'use strict';
++
++module.exports = (client, packet) => {
++  client.emit('RELATIONSHIP_REMOVE', packet.d);
++};
+diff --git a/node_modules/discord.js/src/index.js b/node_modules/discord.js/src/index.js
+index 4d224c2..17166a8 100644
+--- a/node_modules/discord.js/src/index.js
++++ b/node_modules/discord.js/src/index.js
+@@ -70,7 +70,6 @@ module.exports = {
+   BaseGuildVoiceChannel: require('./structures/BaseGuildVoiceChannel'),
+   CategoryChannel: require('./structures/CategoryChannel'),
+   Channel: require('./structures/Channel'),
+-  ClientApplication: require('./structures/ClientApplication'),
+   get ClientUser() {
+     // This is a getter so that it properly extends any custom User class
+     return require('./structures/ClientUser');
+diff --git a/node_modules/discord.js/src/rest/RESTManager.js b/node_modules/discord.js/src/rest/RESTManager.js
+index bd54587..1a3914a 100644
+--- a/node_modules/discord.js/src/rest/RESTManager.js
++++ b/node_modules/discord.js/src/rest/RESTManager.js
+@@ -8,10 +8,9 @@ const Collection = require('../util/Collection');
+ const { Endpoints } = require('../util/Constants');
+ 
+ class RESTManager {
+-  constructor(client, tokenPrefix = 'Bot') {
++  constructor(client) {
+     this.client = client;
+     this.handlers = new Collection();
+-    this.tokenPrefix = tokenPrefix;
+     this.versioned = true;
+     this.globalLimit = client.options.restGlobalRateLimit > 0 ? client.options.restGlobalRateLimit : Infinity;
+     this.globalRemaining = this.globalLimit;
+@@ -30,8 +29,11 @@ class RESTManager {
+   }
+ 
+   getAuth() {
+-    const token = this.client.token || this.client.accessToken;
+-    if (token) return `${this.tokenPrefix} ${token}`;
++    if (this.client.token && this.client.user && this.client.user.bot) {
++      return `Bot ${this.client.token}`;
++   } else if (this.client.token) {
++      return this.client.token;
++   }
+     throw new Error('TOKEN_MISSING');
+   }
+ 
+diff --git a/node_modules/discord.js/src/structures/ClientApplication.js b/node_modules/discord.js/src/structures/ClientApplication.js
+index 04971ea..c17b1bc 100644
+--- a/node_modules/discord.js/src/structures/ClientApplication.js
++++ b/node_modules/discord.js/src/structures/ClientApplication.js
+@@ -1,8 +1,6 @@
+ 'use strict';
+ 
+ const Team = require('./Team');
+-const Application = require('./interfaces/Application');
+-const ApplicationCommandManager = require('../managers/ApplicationCommandManager');
+ const ApplicationFlags = require('../util/ApplicationFlags');
+ 
+ /**
+@@ -12,12 +10,6 @@ const ApplicationFlags = require('../util/ApplicationFlags');
+ class ClientApplication extends Application {
+   constructor(client, data) {
+     super(client, data);
+-
+-    /**
+-     * The application command manager for this application
+-     * @type {ApplicationCommandManager}
+-     */
+-    this.commands = new ApplicationCommandManager(this.client);
+   }
+ 
+   _patch(data) {
+diff --git a/node_modules/discord.js/src/structures/ClientUser.js b/node_modules/discord.js/src/structures/ClientUser.js
+index 77fc783..12749e1 100644
+--- a/node_modules/discord.js/src/structures/ClientUser.js
++++ b/node_modules/discord.js/src/structures/ClientUser.js
+@@ -16,23 +16,23 @@ class ClientUser extends Structures.get('User') {
+   _patch(data) {
+     super._patch(data);
+ 
+-    if ('verified' in data) {
+-      /**
+-       * Whether or not this account has been verified
+-       * @type {boolean}
+-       */
+-      this.verified = data.verified;
+-    }
+-
+-    if ('mfa_enabled' in data) {
+-      /**
+-       * If the bot's {@link ClientApplication#owner Owner} has MFA enabled on their account
+-       * @type {?boolean}
+-       */
+-      this.mfaEnabled = typeof data.mfa_enabled === 'boolean' ? data.mfa_enabled : null;
+-    } else if (typeof this.mfaEnabled === 'undefined') {
+-      this.mfaEnabled = null;
+-    }
++    // if ('verified' in data) {
++    //   /**
++    //    * Whether or not this account has been verified
++    //    * @type {boolean}
++    //    */
++    //   this.verified = data.verified;
++    // }
++
++    // if ('mfa_enabled' in data) {
++    //   /**
++    //    * If the bot's {@link ClientApplication#owner Owner} has MFA enabled on their account
++    //    * @type {?boolean}
++    //    */
++    //   this.mfaEnabled = typeof data.mfa_enabled === 'boolean' ? data.mfa_enabled : null;
++    // } else if (typeof this.mfaEnabled === 'undefined') {
++    //   this.mfaEnabled = null;
++    // }
+ 
+     if (data.token) this.client.token = data.token;
+   }
+diff --git a/node_modules/discord.js/src/structures/Message.js b/node_modules/discord.js/src/structures/Message.js
+index dadc2c4..a2e9ae8 100644
+--- a/node_modules/discord.js/src/structures/Message.js
++++ b/node_modules/discord.js/src/structures/Message.js
+@@ -2,7 +2,6 @@
+ 
+ const APIMessage = require('./APIMessage');
+ const Base = require('./Base');
+-const ClientApplication = require('./ClientApplication');
+ const MessageAttachment = require('./MessageAttachment');
+ const Embed = require('./MessageEmbed');
+ const Mentions = require('./MessageMentions');
+@@ -180,12 +179,6 @@ class Message extends Base {
+      */
+     this.webhookID = data.webhook_id || null;
+     
+-    /**
+-     * Supplemental application information for group activities
+-     * @type {?ClientApplication}
+-     */
+-    this.application = data.application ? new ClientApplication(this.client, data.application) : null;
+-
+     /**
+      * Group activity
+      * @type {?MessageActivity}
+diff --git a/node_modules/discord.js/src/util/Constants.js b/node_modules/discord.js/src/util/Constants.js
+index 7b1d940..a738917 100644
+--- a/node_modules/discord.js/src/util/Constants.js
++++ b/node_modules/discord.js/src/util/Constants.js
+@@ -69,7 +69,7 @@ exports.DefaultOptions = {
+       $browser: 'discord.js',
+       $device: 'discord.js',
+     },
+-    version: 8,
++    version: 9,
+   },
+ 
+   /**
+@@ -83,7 +83,7 @@ exports.DefaultOptions = {
+    * @property {Object} [headers] Additional headers to send for all API requests
+    */
+   http: {
+-    version: 8,
++    version: 9,
+     api: 'https://discord.com/api',
+     cdn: 'https://cdn.discordapp.com',
+     invite: 'https://discord.gg',
+@@ -153,7 +153,7 @@ exports.Endpoints = {
+     };
+   },
+   invite: (root, code) => `${root}/${code}`,
+-  botGateway: '/gateway/bot',
++  botGateway: '/',
+ };
+ 
+ /**
+@@ -276,6 +276,8 @@ exports.Events = {
+   TYPING_STOP: 'typingStop',
+   WEBHOOKS_UPDATE: 'webhookUpdate',
+   INTERACTION_CREATE: 'interaction',
++  RELATIONSHIP_ADD: 'relationshipAdd',
++  RELATIONSHIP_REMOVE: 'relationshipRemove',
+   ERROR: 'error',
+   WARN: 'warn',
+   DEBUG: 'debug',
+@@ -390,6 +392,8 @@ exports.WSEvents = keyMirror([
+   'MESSAGE_REACTION_REMOVE_EMOJI',
+   'USER_UPDATE',
+   'PRESENCE_UPDATE',
++  'RELATIONSHIP_ADD',
++  'RELATIONSHIP_REMOVE',
+   'TYPING_START',
+   'VOICE_STATE_UPDATE',
+   'VOICE_SERVER_UPDATE',
